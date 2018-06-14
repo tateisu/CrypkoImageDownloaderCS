@@ -50,8 +50,14 @@ namespace CrypkoImageDownloader
             if (cardId == null && crawlOwner == null)
                 throw new ArgumentException( "usage: CrypkoImageDownloader cardId [-o outfile]" );
 
-            if (outputFile == null)
-                outputFile = $"{cardId}.jpg";
+            if (outputFile == null) {
+                if (cardId == null) {
+                    outputFile = "0.jpg"; // will be replaced in eatList()
+                } else {
+                    outputFile = $"{cardId}.jpg";
+                }
+            }
+                    
 
             outputFileOriginal = outputFile;
             jsonFileOriginal = jsonFile;
@@ -207,37 +213,40 @@ namespace CrypkoImageDownloader
                 RequestHandler = this
             };
 
-            var waitInterval = TimeSpan.FromSeconds( 1.0 );
-            while (Interlocked.Read( ref isCompleted ) == 0) {
-                Interlocked.MemoryBarrier();
-                var now = DateTime.Now;
-                var elapsed = now - timeStart;
-                if (elapsed > options.timeout) {
-                    log( "timeout" );
-                    return 1;
+            try {
+                var waitInterval = TimeSpan.FromSeconds( 1.0 );
+                while (Interlocked.Read( ref isCompleted ) == 0) {
+                    Interlocked.MemoryBarrier();
+                    var now = DateTime.Now;
+                    var elapsed = now - timeStart;
+                    if (elapsed > options.timeout) {
+                        log( "timeout" );
+                        return 1;
+                    }
+                    if (nextPageUrl != null && now >= nextPageTime) {
+                        browser.Load( nextPageUrl );
+                        nextPageUrl = null;
+                        nextPageTime = DateTime.MaxValue;
+                        continue;
+                    }
+                    lock (mainLock) {
+                        Monitor.Wait( mainLock, waitInterval );
+                    }
                 }
-                if (nextPageUrl != null && now >= nextPageTime) {
-                    browser.Load( nextPageUrl );
-                    nextPageUrl = null;
-                    nextPageTime = DateTime.MaxValue;
-                    continue;
-                }
-                lock (mainLock) {
-                    Monitor.Wait( mainLock, waitInterval );
-                }
+
+                return (int)Interlocked.Read( ref returnCode );
+
+            } finally {
+                //
+                log( "Dispose browser." );
+                browser.Dispose();
+
+                //
+                // Clean up Chromium objects.  You need to call this in your application otherwise
+                // you will get a crash when closing.
+                log( "Shutdown Cef." );
+                Cef.Shutdown();
             }
-
-            //
-            log( "Dispose browser." );
-            browser.Dispose();
-
-            //
-            // Clean up Chromium objects.  You need to call this in your application otherwise
-            // you will get a crash when closing.
-            log( "Shutdown Cef." );
-            Cef.Shutdown();
-
-            return (int)Interlocked.Read( ref returnCode );
         }
 
         public void breakLoop(long code)
