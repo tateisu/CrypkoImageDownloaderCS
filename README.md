@@ -18,6 +18,7 @@ this console app downloads crypko's card image using embeded Chromium (CefSharp)
 -o (fileName) : (output)image file name. default: "${cardId}.jpg"
 -j (fileName) : (output)json file name. default: none
 -t (number)   : set timeouts in seconds.
+--user-agent (string) : HTTP User-Agent header. default: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.79 Safari/537.36"
 
 use '-' as fileName to output to STDOUT. 
 
