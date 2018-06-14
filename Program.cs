@@ -6,6 +6,10 @@ using System.Threading;
 using CefSharp;
 using CefSharp.OffScreen;
 
+// usage: CrypkoImageDownloaderCS cardId [-o outfile.jpg]
+// default output file name is "{cardId}.jpg".
+// use "-o -" to output stdout.
+
 namespace CrypkoImageDownloader
 {
 
