@@ -12,6 +12,50 @@ using CefSharp.OffScreen;
 
 namespace CrypkoImageDownloader
 {
+    public class AppOptions
+    {
+        public string cardId = null;
+        public string outputFile = null;
+        public string jsonFile = null;
+
+        public AppOptions(String[] args)
+        {
+            for (var i = 0; i < args.Length; ++i) {
+                System.Diagnostics.Debug.WriteLine( $"{i} {args[ i ]}" );
+                var a = args[ i ];
+                if (a == "-o") {
+                    outputFile = args[ ++i ];
+                } else if (a == "-j") {
+                    jsonFile = args[ ++i ];
+                } else {
+                    if (cardId != null) {
+                        throw new ArgumentException( "multiple card id is not supported." );
+                    }
+                    cardId = a;
+                }
+            }
+            if (cardId == null)
+                throw new ArgumentException( "usage: CrypkoImageDownloader cardId [-o outfile]" );
+
+            if (outputFile == null)
+                outputFile = $"{cardId}.jpg";
+
+            makeDir( outputFile );
+            makeDir( jsonFile );
+        }
+
+        void makeDir(string filePath)
+        {
+            if (filePath == null || filePath == "" || filePath == "-")
+                return;
+            var dir = Path.GetDirectoryName( filePath );
+            if (dir.Length > 0 && !Directory.Exists( dir )) {
+                Directory.CreateDirectory( dir );
+            }
+        }
+
+    }
+
 
     // リソース取得完了時の処理
     public delegate void ResourceCompleteAction(byte[] data);
@@ -73,13 +117,11 @@ namespace CrypkoImageDownloader
     public class MyRequestHandler : CefSharp.Handler.DefaultRequestHandler
     {
 
-        private string cardId;
-        private string outputFile;
+        private AppOptions options;
 
-        public MyRequestHandler(string cardId, string outputFile)
+        public MyRequestHandler(AppOptions options)
         {
-            this.cardId = cardId;
-            this.outputFile = outputFile;
+            this.options = options;
         }
 
         private Object mainLock = new Object();
@@ -95,7 +137,7 @@ namespace CrypkoImageDownloader
             settings.ExternalMessagePump = !multiThreadedMessageLoop;
             Cef.Initialize( settings );
 
-            var browser = new ChromiumWebBrowser( $"https://crypko.ai/#/card/{cardId}" ) {
+            var browser = new ChromiumWebBrowser( $"https://crypko.ai/#/card/{options.cardId}" ) {
                 RequestHandler = this
             };
             browser.LoadingStateChanged += (object sender, LoadingStateChangedEventArgs args) => {
@@ -120,7 +162,7 @@ namespace CrypkoImageDownloader
             //
             Console.Error.WriteLine( "Dispose browser." );
             browser.Dispose();
-            
+
             //
             // Clean up Chromium objects.  You need to call this in your application otherwise
             // you will get a crash when closing.
@@ -165,12 +207,11 @@ namespace CrypkoImageDownloader
                     var cardId = m.Groups[ 1 ].Value;
                     lastCardId = cardId;
                     Console.Error.WriteLine( $"card detail: {cardId} {uri}" );
-
-#if false // may we save detail JSON data if option is specified?
-                    return makeFilter( request, (data) => {
-                    } );
-#endif
-
+                    if (options.jsonFile != null) {
+                        return makeFilter( request, (data) => {
+                            save( options.jsonFile, data );
+                        } );
+                    }
                     return null;
                 }
 
@@ -180,19 +221,12 @@ namespace CrypkoImageDownloader
                     var imageId = m.Groups[ 1 ].Value;
                     Console.Error.WriteLine( $"Image URL: {uri}" );
                     return makeFilter( request, (data) => {
-                        if (lastCardId != cardId) {
-                            Console.Error.WriteLine( $"card ID not match. expected:{cardId} actually:{lastCardId}" );
+                        if (lastCardId != options.cardId) {
+                            Console.Error.WriteLine( $"card ID not match. expected:{options.cardId} actually:{lastCardId}" );
                             raiseError( 2 );
                         }
-                        if (outputFile == "-") {
-                            using (Stream stdout = Console.OpenStandardOutput()) {
-                                stdout.Write( data, 0, data.Length );
-                            }
-                            Console.Error.WriteLine( "Written to Stdout" );
-                        } else {
-                            File.WriteAllBytes( outputFile, data );
-                            Console.Error.WriteLine( $"Saved: {outputFile}" );
-                        }
+                        save( options.outputFile, data );
+                    
                         raiseError( 0 );
                     } );
                 }
@@ -201,6 +235,19 @@ namespace CrypkoImageDownloader
                 raiseError( 10 );
             }
             return null;
+        }
+
+        private void save(string filePath, byte[] data)
+        {
+            if (filePath == "-") {
+                using (Stream stdout = Console.OpenStandardOutput()) {
+                    stdout.Write( data, 0, data.Length );
+                }
+                Console.Error.WriteLine( "Written to Stdout" );
+            } else {
+                File.WriteAllBytes( filePath, data );
+                Console.Error.WriteLine( $"Saved: {filePath}" );
+            }
         }
 
         public override void OnResourceLoadComplete(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, IResponse response, UrlRequestStatus status, long receivedContentLength)
@@ -223,35 +270,8 @@ namespace CrypkoImageDownloader
     {
         static int Main(string[] args)
         {
-
-            string outputFile = null;
-            string cardId = null;
-            for (var i = 0; i < args.Length; ++i) {
-                System.Diagnostics.Debug.WriteLine( $"{i} {args[ i ]}" );
-                var a = args[ i ];
-                if (a == "-o") {
-                    outputFile = args[ ++i ];
-                } else {
-                    if (cardId != null) {
-                        throw new ArgumentException( "multiple card id is not supported." );
-                    }
-                    cardId = a;
-                }
-            }
-            if (cardId == null)
-                throw new ArgumentException( "usage: CrypkoImageDownloader cardId [-o outfile]" );
-
-            if (outputFile == null)
-                outputFile = $"{cardId}.jpg";
-
-            if (outputFile != "-") {
-                var dir = Path.GetDirectoryName( outputFile );
-                if (dir.Length > 0 && !Directory.Exists( dir )) {
-                    Directory.CreateDirectory( dir );
-                }
-            }
-
-            return new MyRequestHandler( cardId, outputFile ).Run();
+            var options = new AppOptions( args );
+            return new MyRequestHandler( options ).Run();
         }
     }
 }
