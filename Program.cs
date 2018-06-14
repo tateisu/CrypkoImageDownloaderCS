@@ -40,59 +40,7 @@ namespace CrypkoImageDownloader
     // リソース取得完了時のコールバック
     public delegate void ResourceCompleteAction(byte[] data);
 
-    // レスポンスボディのフィルタを使って内容をMemoryStreamに保持する
-    public class MemoryStreamResponseFilter : IResponseFilter
-    {
-        public ResourceCompleteAction action;
 
-        public MemoryStreamResponseFilter(ResourceCompleteAction action)
-        {
-            this.action = action;
-        }
-
-        private MemoryStream memoryStream;
-        public byte[] Data
-        {
-            get {
-                return memoryStream.ToArray();
-            }
-        }
-
-        bool IResponseFilter.InitFilter()
-        {
-            //NOTE: We could initialize this earlier, just one possible use of InitFilter
-            memoryStream = new MemoryStream();
-
-            return true;
-        }
-
-        FilterStatus IResponseFilter.Filter(Stream dataIn, out long dataInRead, Stream dataOut, out long dataOutWritten)
-        {
-            if (dataIn == null) {
-                dataInRead = 0;
-                dataOutWritten = 0;
-                return FilterStatus.Done;
-            }
-
-            dataInRead = dataIn.Length;
-            dataOutWritten = Math.Min( dataInRead, dataOut.Length );
-
-            //Important we copy dataIn to dataOut
-            dataIn.CopyTo( dataOut );
-
-            //Copy data to stream
-            dataIn.Position = 0;
-            dataIn.CopyTo( memoryStream );
-
-            return FilterStatus.Done;
-        }
-
-        void IDisposable.Dispose()
-        {
-            memoryStream.Dispose();
-            memoryStream = null;
-        }
-    }
 
     public class AppOptions
     {
@@ -192,7 +140,7 @@ namespace CrypkoImageDownloader
         AppOptions options;
         long isCompleted = 0;
         long returnCode = 30; // unknown error
-        DateTime timeStart = DateTime.Now;
+        DateTime timeStart = DateTime.MaxValue;
         DateTime nextPageTime = DateTime.MaxValue;
         string nextPageUrl = null;
 
@@ -225,6 +173,9 @@ namespace CrypkoImageDownloader
             };
 
             try {
+                // クロールとeatList() に時間がかかる場合があるので設定しなおす
+                timeStart = DateTime.Now;
+
                 // メインスレッドの待機ループ
                 var waitInterval = TimeSpan.FromSeconds( 1.0 );
                 while (Interlocked.Read( ref isCompleted ) == 0) {
@@ -290,6 +241,9 @@ namespace CrypkoImageDownloader
                 Monitor.Pulse( mainLock );
             }
         }
+
+        //#################################################################################
+        // search APIでカードIDを取得
 
         List<string> cardIdList = new List<string>();
 
@@ -367,6 +321,9 @@ namespace CrypkoImageDownloader
                     options.outputFile = Regex.Replace( options.outputFileOriginal, @"(\d+)(\D*)$", $"{cardId}$2" );
                     if (File.Exists( options.outputFile )) {
                         Log( $"skip {cardId}, already exists {options.outputFile}" );
+
+                        // スキップが多いとブラウザ側がタイムアウトしてしまう問題の回避
+                        timeStart = DateTime.Now;
                         continue;
                     }
 
@@ -384,30 +341,17 @@ namespace CrypkoImageDownloader
         }
 
         //#################################################################################
+        // リソース取得の傍受
 
-        Dictionary<ulong, MemoryStreamResponseFilter> filterMap = new Dictionary<ulong, MemoryStreamResponseFilter>();
-
-        public override void OnResourceLoadComplete(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, IResponse response, UrlRequestStatus status, long receivedContentLength)
-        {
-            try {
-                if (filterMap.TryGetValue( request.Identifier, out MemoryStreamResponseFilter filter )) {
-                    filterMap.Remove( request.Identifier );
-                    filter.action( filter.Data );
-                }
-            } catch (Exception ex) {
-                Log( $"OnResourceLoadComplete: catch exception. {ex}" );
-                BreakLoop( 11 );
-            }
-        }
+        Dictionary<ulong, InterceptResponseFilter> filterMap = new Dictionary<ulong, InterceptResponseFilter>();
 
         public IResponseFilter MakeFilter(IRequest request, ResourceCompleteAction action)
         {
-            var dataFilter = new MemoryStreamResponseFilter( action );
+            var dataFilter = new InterceptResponseFilter( action );
             filterMap.Add( request.Identifier, dataFilter );
             return dataFilter;
         }
 
-        // CefSharp のリソース取得フィルタを使ってデータを傍受する
         public override IResponseFilter GetResourceResponseFilter(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, IResponse response)
         {
             try {
@@ -455,5 +399,71 @@ namespace CrypkoImageDownloader
             }
             return null;
         }
+
+        public override void OnResourceLoadComplete(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, IResponse response, UrlRequestStatus status, long receivedContentLength)
+        {
+            try {
+                if (filterMap.TryGetValue( request.Identifier, out InterceptResponseFilter filter )) {
+                    filterMap.Remove( request.Identifier );
+                    filter.action( filter.Data );
+                }
+            } catch (Exception ex) {
+                Log( $"OnResourceLoadComplete: catch exception. {ex}" );
+                BreakLoop( 11 );
+            }
+        }
+    }
+
+    // リソースの傍受に使うレスポンスフィルタ
+    public class InterceptResponseFilter : IResponseFilter
+    {
+        public ResourceCompleteAction action;
+
+        public InterceptResponseFilter(ResourceCompleteAction action)
+        {
+            this.action = action;
+        }
+
+        private MemoryStream memoryStream = new MemoryStream();
+
+        public byte[] Data
+        {
+            get {
+                return memoryStream.ToArray();
+            }
+        }
+
+        void IDisposable.Dispose()
+        {
+            memoryStream.Dispose();
+            memoryStream = null;
+        }
+
+        bool IResponseFilter.InitFilter()
+        {
+            return true;
+        }
+
+        FilterStatus IResponseFilter.Filter(Stream dataIn, out long dataInRead, Stream dataOut, out long dataOutWritten)
+        {
+            if (dataIn == null) {
+                dataInRead = 0;
+                dataOutWritten = 0;
+                return FilterStatus.Done;
+            }
+
+            dataInRead = dataIn.Length;
+            dataOutWritten = Math.Min( dataInRead, dataOut.Length );
+
+            //Important we copy dataIn to dataOut
+            dataIn.CopyTo( dataOut );
+
+            //Copy data to stream
+            dataIn.Position = 0;
+            dataIn.CopyTo( memoryStream );
+
+            return FilterStatus.Done;
+        }
+
     }
 }
