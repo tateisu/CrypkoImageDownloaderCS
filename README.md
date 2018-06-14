@@ -1,5 +1,7 @@
 # CrypkoImageDownloaderCS
 
+( 日本語はこちら https://github.com/tateisu/CrypkoImageDownloaderCS/blob/master/README-ja.md )
+
 This console app downloads crypko's card image using embeded Chromium (CefSharp) off-screen mode.
 
 Windows-x86 binary is provided in releases page.

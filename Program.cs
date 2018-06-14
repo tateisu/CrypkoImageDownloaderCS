@@ -27,6 +27,7 @@ namespace CrypkoImageDownloader
             get; set;
         }
     }
+
     public class SearchResult
     {
         public long totalMatched
