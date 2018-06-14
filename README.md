@@ -1,24 +1,31 @@
 # CrypkoImageDownloaderCS
 
-this console app downloads crypko's card image using embeded Chromium (CefSharp) off-screen mode.
+This console app downloads crypko's card image using embeded Chromium (CefSharp) off-screen mode.
 
-## usage
+## Usage
 
-### get single card
+### Get single card
 
 ```CrypkoImageDownloaderCS.exe (cardId)```
 
-### get multiple cards by owner
+### Get multiple cards by owner
 
 ```CrypkoImageDownloaderCS.exe --owner (address)```
 
-## options
+## Options
 
 ```
--o (fileName) : (output)image file name. default: "${cardId}.jpg"
--j (fileName) : (output)json file name. default: none
--t (number)   : set timeouts in seconds.
---user-agent (string) : HTTP User-Agent header. default: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.79 Safari/537.36"
+-o (fileName) : (output)the file name of card image. 
+                default: "${cardId}.jpg"
+
+-j (fileName) : (output)the file name of card information name. 
+                The card information will be saved only when this option is set.
+
+-t (number)   : set timeouts in seconds. 
+                default: 30
+
+--user-agent (string) : HTTP User-Agent header.
+                default: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.79 Safari/537.36"
 
 use '-' as fileName to output to STDOUT. 
 
