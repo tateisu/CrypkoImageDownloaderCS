@@ -2,6 +2,9 @@
 
 This console app downloads crypko's card image using embeded Chromium (CefSharp) off-screen mode.
 
+Windows-x86 binary is provided in releases page.
+https://github.com/tateisu/CrypkoImageDownloaderCS/releases
+
 ## Usage
 
 ### Get single card
