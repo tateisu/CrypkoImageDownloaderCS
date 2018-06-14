@@ -17,6 +17,7 @@ namespace CrypkoImageDownloader
         public string cardId = null;
         public string outputFile = null;
         public string jsonFile = null;
+        public TimeSpan timeout = TimeSpan.FromSeconds( 30.0);
 
         public AppOptions(String[] args)
         {
@@ -27,6 +28,8 @@ namespace CrypkoImageDownloader
                     outputFile = args[ ++i ];
                 } else if (a == "-j") {
                     jsonFile = args[ ++i ];
+                } else if (a == "-t") {
+                    timeout= TimeSpan.FromSeconds( Double.Parse(args[ ++i ]));
                 } else {
                     if (cardId != null) {
                         throw new ArgumentException( "multiple card id is not supported." );
@@ -141,16 +144,12 @@ namespace CrypkoImageDownloader
             var browser = new ChromiumWebBrowser( $"https://crypko.ai/#/card/{options.cardId}" ) {
                 RequestHandler = this
             };
-            browser.LoadingStateChanged += (object sender, LoadingStateChangedEventArgs args) => {
-                Console.Error.WriteLine( "IsLoading=" + args.IsLoading );
-            };
 
             var waitInterval = TimeSpan.FromSeconds( 1.0 );
-            var timeout = TimeSpan.FromSeconds( 10.0 );
             var timeStart = DateTime.Now;
             while (Interlocked.Read( ref isCompleted ) == 0) {
                 var elapsed = DateTime.Now - timeStart;
-                if (elapsed > timeout) {
+                if (elapsed > options.timeout) {
                     Console.Error.WriteLine( "timeout" );
                     return 1;
                 }
@@ -168,6 +167,7 @@ namespace CrypkoImageDownloader
             // you will get a crash when closing.
             Console.Error.WriteLine( "Shutdown Cef." );
             Cef.Shutdown();
+
             return (int)Interlocked.Read( ref returnCode );
         }
 
