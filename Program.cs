@@ -14,6 +14,10 @@ using Newtonsoft.Json;
 
 namespace CrypkoImageDownloader
 {
+    public delegate void ResourceCompleteAction(byte[] data);
+
+    //#####################################################
+    // JSON.Net のデシリアライズに使うクラス定義
 
 #pragma warning disable IDE1006 // 命名スタイル
     public class Card
@@ -37,10 +41,8 @@ namespace CrypkoImageDownloader
     }
 #pragma warning restore IDE1006 // 命名スタイル
 
-    // リソース取得完了時のコールバック
-    public delegate void ResourceCompleteAction(byte[] data);
-
-
+    //#####################################################
+    // コマンドラインオプション
 
     public class AppOptions
     {
@@ -105,6 +107,9 @@ namespace CrypkoImageDownloader
         }
     }
 
+    //#####################################################
+    // メインプログラム 兼 CefSharpリクエストハンドラ
+
     public class Program : CefSharp.Handler.DefaultRequestHandler
     {
 
@@ -131,18 +136,15 @@ namespace CrypkoImageDownloader
             return new Program().Run( new AppOptions( args ) );
         }
 
-
-        readonly Regex reCrypkoDetailApi = new Regex( @"https://api.crypko.ai/crypkos/(\d+)/detail" );
-        readonly Regex reCrypkoImageUrl = new Regex( @"https://img.crypko.ai/daisy/([A-Za-z0-9]+)_lg\.jpg" );
         readonly Object mainLock = new Object();
 
-        string lastCardId = null;
         AppOptions options;
         long isCompleted = 0;
         long returnCode = 30; // unknown error
         DateTime timeStart = DateTime.MaxValue;
         DateTime nextPageTime = DateTime.MaxValue;
         string nextPageUrl = null;
+        string lastCardId = null;
 
         public int Run(AppOptions options)
         {
@@ -226,6 +228,7 @@ namespace CrypkoImageDownloader
             // 画像を読めたなら次の画像のロードを指示する
             if (code == 0 && EatList()) {
                 timeStart = DateTime.Now;
+                // rate limit 対策。ページのロードを少し遅らせる
                 nextPageTime = timeStart + TimeSpan.FromSeconds( 2 );
                 nextPageUrl = $"https://crypko.ai/#/card/{options.cardId}";
                 lock (mainLock) {
@@ -343,7 +346,7 @@ namespace CrypkoImageDownloader
         //#################################################################################
         // リソース取得の傍受
 
-        Dictionary<ulong, InterceptResponseFilter> filterMap = new Dictionary<ulong, InterceptResponseFilter>();
+        readonly Dictionary<ulong, InterceptResponseFilter> filterMap = new Dictionary<ulong, InterceptResponseFilter>();
 
         public IResponseFilter MakeFilter(IRequest request, ResourceCompleteAction action)
         {
@@ -351,6 +354,9 @@ namespace CrypkoImageDownloader
             filterMap.Add( request.Identifier, dataFilter );
             return dataFilter;
         }
+
+        readonly Regex reCrypkoDetailApi = new Regex( @"https://api.crypko.ai/crypkos/(\d+)/detail" );
+        readonly Regex reCrypkoImageUrl = new Regex( @"https://img.crypko.ai/daisy/([A-Za-z0-9]+)_lg\.jpg" );
 
         public override IResponseFilter GetResourceResponseFilter(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, IResponse response)
         {
