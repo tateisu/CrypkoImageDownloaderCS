@@ -332,3 +332,4 @@ data/
 GPUCache/
 *.jpg
 *.zip
+*.json
