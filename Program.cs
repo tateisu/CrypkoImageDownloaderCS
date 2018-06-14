@@ -135,6 +135,7 @@ namespace CrypkoImageDownloader
             settings.WindowlessRenderingEnabled = true;
             settings.MultiThreadedMessageLoop = multiThreadedMessageLoop;
             settings.ExternalMessagePump = !multiThreadedMessageLoop;
+            settings.LogSeverity = LogSeverity.Error;
             Cef.Initialize( settings );
 
             var browser = new ChromiumWebBrowser( $"https://crypko.ai/#/card/{options.cardId}" ) {
@@ -153,7 +154,6 @@ namespace CrypkoImageDownloader
                     Console.Error.WriteLine( "timeout" );
                     return 1;
                 }
-                Console.WriteLine( $"waiting {elapsed}/{timeout} seconds…" );
                 lock (mainLock) {
                     Monitor.Wait( mainLock, waitInterval );
                 }
@@ -197,6 +197,11 @@ namespace CrypkoImageDownloader
         public override IResponseFilter GetResourceResponseFilter(IWebBrowser browserControl, IBrowser browser, IFrame frame, IRequest request, IResponse response)
         {
             try {
+                // don't filter other than GET method.
+                if (request.Method!= "GET")
+                    return null;
+
+
                 var uri = request.Url;
 
                 Match m;
