@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Text.RegularExpressions;
 using System.Threading;
+using Brotli;
 using CefSharp;
 using CefSharp.OffScreen;
 using Newtonsoft.Json;
@@ -59,7 +61,7 @@ namespace CrypkoImageDownloader
         public AppOptions(String[] args)
         {
             for (var i = 0; i < args.Length; ++i) {
-                System.Diagnostics.Debug.WriteLine( $"{i} {args[ i ]}" );
+                // System.Diagnostics.Debug.WriteLine( $"{i} {args[ i ]}" );
                 var a = args[ i ];
                 if (a == "-o") {
                     outputFile = args[ ++i ];
@@ -88,7 +90,6 @@ namespace CrypkoImageDownloader
                     outputFile = $"{cardId}.jpg";
                 }
             }
-
 
             outputFileOriginal = outputFile;
             jsonFileOriginal = jsonFile;
@@ -249,22 +250,22 @@ namespace CrypkoImageDownloader
         //#################################################################################
         // search APIでカードIDを取得
 
-        List<string> cardIdList = new List<string>();
+        List<long> cardIdList = new List<long>();
 
         // サーチAPIを繰り返し呼び出し、カードIDを収集する
-        private void CrawlList(string searchParam)
+        void CrawlList(string searchParam)
         {
             // 重複排除のため、一時的にSetに格納する
-            SortedSet<String> tmpSet = new SortedSet<String>();
+            HashSet<long> tmpSet = new HashSet<long>();
 
             try {
-                using (WebClient client = new WebClient()) {
+                using (var client = new WebClient()) {
 
                     client.Headers.Set( HttpRequestHeader.UserAgent, options.userAgent );
                     client.Headers.Set( HttpRequestHeader.Accept, "application/json, text/plain, */*" );
                     client.Headers.Set( HttpRequestHeader.Referer, "https://crypko.ai/" );
                     client.Headers.Set( HttpRequestHeader.AcceptLanguage, "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7" );
-                    // client.Headers.Set( HttpRequestHeader.AcceptEncoding, "gzip, deflate" );
+                    client.Headers.Set( HttpRequestHeader.AcceptEncoding, "gzip, deflate, br" );
 
                     for (var page = 1; page < 1000; ++page) {
                         var url = $"https://api.crypko.ai/crypkos/search?{searchParam}" + ( page > 1 ? $"&page={page}" : "" );
@@ -278,20 +279,47 @@ namespace CrypkoImageDownloader
                             try {
                                 // client.DownloadString を使うと文字化けしてJSONパースに失敗する
                                 var jsonBytes = client.DownloadData( url );
+
+                                var contentEncoding = client.ResponseHeaders.Get( "Content-Encoding" );
+                                Log( $"contentEncoding={contentEncoding}" );
+                                if (contentEncoding == "br") {
+                                    using (var streamIn= new BrotliStream( new MemoryStream( jsonBytes ), System.IO.Compression.CompressionMode.Decompress ))
+                                    using (var streamOut= new MemoryStream()) {
+                                        streamIn.CopyTo( streamOut );
+                                        streamOut.Seek( 0, System.IO.SeekOrigin.Begin );
+                                        jsonBytes = streamOut.ToArray();
+                                    }
+                                } else if (contentEncoding == "gzip") {
+                                    using (var streamIn = new GZipStream( new MemoryStream( jsonBytes ), CompressionMode.Decompress ))
+                                    using (var streamOut = new MemoryStream()) {
+                                        streamIn.CopyTo( streamOut );
+                                        streamOut.Seek( 0, System.IO.SeekOrigin.Begin );
+                                        jsonBytes = streamOut.ToArray();
+                                    }
+                                } else if (contentEncoding == "deflate") {
+                                    using (var streamIn = new DeflateStream( new MemoryStream( jsonBytes ), CompressionMode.Decompress ))
+                                    using (var streamOut = new MemoryStream()) {
+                                        streamIn.CopyTo( streamOut );
+                                        streamOut.Seek( 0, System.IO.SeekOrigin.Begin );
+                                        jsonBytes = streamOut.ToArray();
+                                    }
+                                }
+
                                 jsonString = System.Text.Encoding.UTF8.GetString( jsonBytes );
 
                                 var searchResult = JsonConvert.DeserializeObject<SearchResult>( jsonString );
                                 var crypkos = searchResult.crypkos;
-                                Log( $"page={page} count={tmpSet.Count}+{crypkos.Count} / {searchResult.totalMatched}" );
                                 if (crypkos.Count == 0) {
-                                    Log( "end of list." );
+                                    Log( $"page={page} end of list." );
                                     return;
                                 }
-
                                 foreach (var card in crypkos) {
-                                    var cardId = $"{card.id}";
-                                    tmpSet.Add( cardId );
+                                    tmpSet.Add( card.id );
                                 }
+                                Log( $"page={page} count={tmpSet.Count}/{searchResult.totalMatched} {(int)( ( tmpSet.Count * 100 ) / (float)searchResult.totalMatched )}%" );
+
+                                return; // DEBUG
+
                                 break; // end of retry
                             } catch (Newtonsoft.Json.JsonReaderException ex) {
                                 // JSONパースに失敗した場合はリトライしない
@@ -307,14 +335,14 @@ namespace CrypkoImageDownloader
                     }
                 }
             } finally {
-                cardIdList = new List<string>( tmpSet );
+                cardIdList = new List<long>( tmpSet );
+                cardIdList.Sort();
             }
-
         }
 
         // カードIDのリストの先頭の要素を検証して options を変更する
         // 取得するべきカードがあれば真を返す
-        private bool EatList()
+        bool EatList()
         {
             try {
                 while (cardIdList.Count > 0) {
@@ -335,7 +363,7 @@ namespace CrypkoImageDownloader
                         options.jsonFile = Regex.Replace( options.jsonFileOriginal, @"(\d+)(\D*)$", $"{cardId}$2" );
                     }
 
-                    options.cardId = cardId;
+                    options.cardId = cardId.ToString();
                     return true;
                 }
             } catch (Exception ex) {
@@ -349,7 +377,7 @@ namespace CrypkoImageDownloader
 
         readonly Dictionary<ulong, InterceptResponseFilter> filterMap = new Dictionary<ulong, InterceptResponseFilter>();
 
-        public IResponseFilter MakeFilter(IRequest request, ResourceCompleteAction action)
+        IResponseFilter MakeFilter(IRequest request, ResourceCompleteAction action)
         {
             var dataFilter = new InterceptResponseFilter( action );
             filterMap.Add( request.Identifier, dataFilter );
@@ -363,7 +391,7 @@ namespace CrypkoImageDownloader
         {
             try {
                 // detail API はOPTIONSとGETの2回呼び出される。
-                // フィルタするのはGETの時だけ
+                // GETだけ傍受する
                 if (request.Method != "GET")
                     return null;
 
@@ -375,8 +403,8 @@ namespace CrypkoImageDownloader
                 m = reCrypkoDetailApi.Match( uri );
                 if (m.Success) {
                     var cardId = m.Groups[ 1 ].Value;
-                    lastCardId = cardId;
-                    Log( $"card detail: {cardId} {uri}" );
+                    this.lastCardId = cardId;
+                    Log( $"card detail: {uri}" );
                     if (options.jsonFile != null) {
                         return MakeFilter( request, (data) => {
                             Save( options.jsonFile, data );
@@ -471,6 +499,5 @@ namespace CrypkoImageDownloader
 
             return FilterStatus.Done;
         }
-
     }
 }
