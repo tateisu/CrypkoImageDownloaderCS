@@ -47,4 +47,7 @@ $ CrypkoImageDownloaderCS.exe --owner 0xc71dcbcc43ac8bf677c1b7992ddfd0e7bfc464a9
 
 ## 実装について
 
-Google Cloud Storage のブラウザ認証を通すためにCefSharp.OffScreenを使って、内蔵ブラウザからカード詳細ページを開くような処理を行います。ページ中のリソース読み込みを傍受してAPIレスポンスや画像データの取得と保存を行います。
+画像URLを普通に開こうとすると403か401になり、アクセス権限が得られません。
+カード詳細ページをブラウザで開く際はJavaScriptで何らかの認証が行われているようです。
+そこでCefSharp.OffScreen を使います。非表示ですがChromiumブラウザを内蔵しています。
+ページ中のリソース読み込みを傍受してAPIレスポンスや画像データを保存します。
