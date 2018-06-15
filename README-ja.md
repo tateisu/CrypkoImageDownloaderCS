@@ -2,8 +2,7 @@
 
 (in English: https://github.com/tateisu/CrypkoImageDownloaderCS/blob/master/README.md )
 
-このコマンドプロンプト用アプリはcrypkoのカード画像をダウンロードします。
-内部的にはCefSharpのオフスクリーンモードを使ってます。
+crypkoのカード画像をダウンロードするdot-NET コンソールアプリです。
 
 Windows用の実行ファイルはリリースのページに添付されています。
 https://github.com/tateisu/CrypkoImageDownloaderCS/releases
@@ -45,3 +44,7 @@ https://github.com/tateisu/CrypkoImageDownloaderCS/releases
 $ CrypkoImageDownloaderCS.exe --owner 0xc71dcbcc43ac8bf677c1b7992ddfd0e7bfc464a9 -o data/0.jpg -j data/0.detail.json -t 60
 ```
 オーナーのアドレスはあなたのアドレスに書き換えてください
+
+## 実装について
+
+Google Cloud Storage のブラウザ認証を通すためにCefSharp.OffScreenを使って、内蔵ブラウザからカード詳細ページを開くような処理を行います。ページ中のリソース読み込みを傍受してAPIレスポンスや画像データの取得と保存を行います。
