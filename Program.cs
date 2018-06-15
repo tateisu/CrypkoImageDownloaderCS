@@ -26,7 +26,7 @@ namespace CrypkoImageDownloader
         public string outputFileOriginal = null;
         public string jsonFile = null;
         public string jsonFileOriginal = null;
-        public string crawlParams= null;
+        public string crawlParams = null;
         public string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.79 Safari/537.36";
         public TimeSpan timeout = TimeSpan.FromSeconds( 30.0 );
 
@@ -49,6 +49,8 @@ namespace CrypkoImageDownloader
                     userAgent = args[ ++i ];
                 } else if (a == "-t") {
                     timeout = TimeSpan.FromSeconds( Double.Parse( args[ ++i ] ) );
+                } else if (a.StartsWith( "-" )) {
+                    throw new ArgumentException( $"unknown option {a}." );
                 } else {
                     if (cardId != null) {
                         throw new ArgumentException( "multiple card id is not supported." );
@@ -310,7 +312,7 @@ namespace CrypkoImageDownloader
                     return true;
                 }
 
-                if (skipCount>0) {
+                if (skipCount > 0) {
                     Log( $"NOTICE: {skipCount}/{cardCount} cards are skipped because image files are already exist." );
                 }
 
@@ -429,7 +431,7 @@ namespace CrypkoImageDownloader
                 if (!leaveOpen) {
                     try {
                         src.Close();
-                    }catch(Exception) {
+                    } catch (Exception) {
 
                     }
                 }
