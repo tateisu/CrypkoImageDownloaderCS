@@ -16,34 +16,6 @@ using Newtonsoft.Json;
 
 namespace CrypkoImageDownloader
 {
-    public delegate void ResourceCompleteAction(byte[] data);
-
-    //#####################################################
-    // JSON.Net のデシリアライズに使うクラス定義
-
-#pragma warning disable IDE1006 // 命名スタイル
-    public class Card
-    {
-        public long id
-        {
-            get; set;
-        }
-    }
-
-    public class SearchResult
-    {
-        public long totalMatched
-        {
-            get; set;
-        }
-        public IList<Card> crypkos
-        {
-            get; set;
-        }
-
-    }
-#pragma warning restore IDE1006 // 命名スタイル
-
     //#####################################################
     // コマンドラインオプション
 
@@ -54,21 +26,25 @@ namespace CrypkoImageDownloader
         public string outputFileOriginal = null;
         public string jsonFile = null;
         public string jsonFileOriginal = null;
-        public string crawlOwner = null;
+        public string crawlParams= null;
         public string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.79 Safari/537.36";
         public TimeSpan timeout = TimeSpan.FromSeconds( 30.0 );
 
         public AppOptions(String[] args)
         {
             for (var i = 0; i < args.Length; ++i) {
-                // System.Diagnostics.Debug.WriteLine( $"{i} {args[ i ]}" );
+                // Program.Log( $"{i} {args[ i ]}" );
                 var a = args[ i ];
                 if (a == "-o") {
                     outputFile = args[ ++i ];
                 } else if (a == "-j") {
                     jsonFile = args[ ++i ];
                 } else if (a == "--owner") {
-                    crawlOwner = args[ ++i ];
+                    var address = args[ ++i ];
+                    crawlParams = $"ownerAddr={address}";
+                } else if (a == "--like-by") {
+                    var address = args[ ++i ];
+                    crawlParams = $"filters=liked%3A{address}";
                 } else if (a == "--user-agent") {
                     userAgent = args[ ++i ];
                 } else if (a == "-t") {
@@ -80,7 +56,7 @@ namespace CrypkoImageDownloader
                     cardId = a;
                 }
             }
-            if (cardId == null && crawlOwner == null)
+            if (cardId == null && crawlParams == null)
                 throw new ArgumentException( "usage: CrypkoImageDownloader cardId [-o outfile]" );
 
             if (outputFile == null) {
@@ -94,19 +70,10 @@ namespace CrypkoImageDownloader
             outputFileOriginal = outputFile;
             jsonFileOriginal = jsonFile;
 
-            MakeDir( outputFile );
-            MakeDir( jsonFile );
+            Program.MakeDir( outputFile );
+            Program.MakeDir( jsonFile );
         }
 
-        static void MakeDir(string filePath)
-        {
-            if (filePath == null || filePath == "" || filePath == "-")
-                return;
-            var dir = Path.GetDirectoryName( filePath );
-            if (dir.Length > 0 && !Directory.Exists( dir )) {
-                Directory.CreateDirectory( dir );
-            }
-        }
     }
 
     //#####################################################
@@ -114,24 +81,6 @@ namespace CrypkoImageDownloader
 
     public class Program : CefSharp.Handler.DefaultRequestHandler
     {
-
-        public static void Log(string line)
-        {
-            Console.Error.WriteLine( line );
-        }
-
-        private static void Save(string filePath, byte[] data)
-        {
-            if (filePath == "-") {
-                using (Stream stdout = Console.OpenStandardOutput()) {
-                    stdout.Write( data, 0, data.Length );
-                }
-                Log( "Wrote to Stdout" );
-            } else {
-                File.WriteAllBytes( filePath, data );
-                Log( $"Saved: {filePath}" );
-            }
-        }
 
         static int Main(string[] args)
         {
@@ -152,12 +101,12 @@ namespace CrypkoImageDownloader
         {
             this.options = options;
 
-            // オーナー指定があればカード一覧を取得する
-            if (options.crawlOwner != null) {
-                CrawlList( $"category=all&sort=-id&ownerAddr={options.crawlOwner}" );
+            // クロール指定があれば、先にカードリストを取得する
+            if (options.crawlParams != null) {
+                CrawlList( $"category=all&sort=-id&{options.crawlParams}" );
                 if (!EatList()) {
-                    Log( "empty list" );
-                    return 1;
+                    Log( "There are no cards to get. exit…" );
+                    return 0;
                 }
             }
 
@@ -177,7 +126,7 @@ namespace CrypkoImageDownloader
             };
 
             try {
-                // クロールとeatList() に時間がかかる場合があるので設定しなおす
+                // クロールに時間がかかる場合があるので設定しなおす
                 timeStart = DateTime.Now;
 
                 // メインスレッドの待機ループ
@@ -252,6 +201,7 @@ namespace CrypkoImageDownloader
 
         List<long> cardIdList = new List<long>();
 
+
         // サーチAPIを繰り返し呼び出し、カードIDを収集する
         void CrawlList(string searchParam)
         {
@@ -268,41 +218,30 @@ namespace CrypkoImageDownloader
                     client.Headers.Set( HttpRequestHeader.AcceptEncoding, "gzip, deflate, br" );
 
                     for (var page = 1; page < 1000; ++page) {
+
                         var url = $"https://api.crypko.ai/crypkos/search?{searchParam}" + ( page > 1 ? $"&page={page}" : "" );
-                        Log( $"get {url}" );
+
                         for (var retry = 0; retry < 10; ++retry) {
 
-                            // to avoid rate-limit, sleep before each request
-                            Thread.Sleep( 1500 );
 
                             string jsonString = null;
                             try {
+
+                                // to avoid rate-limit, sleep before each request
+                                Thread.Sleep( 1500 );
+
+                                Log( $"get {url}" );
                                 // client.DownloadString を使うと文字化けしてJSONパースに失敗する
                                 var jsonBytes = client.DownloadData( url );
 
                                 var contentEncoding = client.ResponseHeaders.Get( "Content-Encoding" );
-                                Log( $"contentEncoding={contentEncoding}" );
+                                // Log( $"contentEncoding={contentEncoding}" );
                                 if (contentEncoding == "br") {
-                                    using (var streamIn= new BrotliStream( new MemoryStream( jsonBytes ), System.IO.Compression.CompressionMode.Decompress ))
-                                    using (var streamOut= new MemoryStream()) {
-                                        streamIn.CopyTo( streamOut );
-                                        streamOut.Seek( 0, System.IO.SeekOrigin.Begin );
-                                        jsonBytes = streamOut.ToArray();
-                                    }
+                                    jsonBytes = GetBytesFromStream( new BrotliStream( new MemoryStream( jsonBytes ), CompressionMode.Decompress ) );
                                 } else if (contentEncoding == "gzip") {
-                                    using (var streamIn = new GZipStream( new MemoryStream( jsonBytes ), CompressionMode.Decompress ))
-                                    using (var streamOut = new MemoryStream()) {
-                                        streamIn.CopyTo( streamOut );
-                                        streamOut.Seek( 0, System.IO.SeekOrigin.Begin );
-                                        jsonBytes = streamOut.ToArray();
-                                    }
+                                    jsonBytes = GetBytesFromStream( new GZipStream( new MemoryStream( jsonBytes ), CompressionMode.Decompress ) );
                                 } else if (contentEncoding == "deflate") {
-                                    using (var streamIn = new DeflateStream( new MemoryStream( jsonBytes ), CompressionMode.Decompress ))
-                                    using (var streamOut = new MemoryStream()) {
-                                        streamIn.CopyTo( streamOut );
-                                        streamOut.Seek( 0, System.IO.SeekOrigin.Begin );
-                                        jsonBytes = streamOut.ToArray();
-                                    }
+                                    jsonBytes = GetBytesFromStream( new DeflateStream( new MemoryStream( jsonBytes ), CompressionMode.Decompress ) );
                                 }
 
                                 jsonString = System.Text.Encoding.UTF8.GetString( jsonBytes );
@@ -317,8 +256,6 @@ namespace CrypkoImageDownloader
                                     tmpSet.Add( card.id );
                                 }
                                 Log( $"page={page} count={tmpSet.Count}/{searchResult.totalMatched} {(int)( ( tmpSet.Count * 100 ) / (float)searchResult.totalMatched )}%" );
-
-                                return; // DEBUG
 
                                 break; // end of retry
                             } catch (Newtonsoft.Json.JsonReaderException ex) {
@@ -337,8 +274,14 @@ namespace CrypkoImageDownloader
             } finally {
                 cardIdList = new List<long>( tmpSet );
                 cardIdList.Sort();
+                cardCount = cardIdList.Count;
+                Log( $"Found {cardCount} cards." );
             }
         }
+
+
+        private int cardCount = 0;
+        private int skipCount = 0;
 
         // カードIDのリストの先頭の要素を検証して options を変更する
         // 取得するべきカードがあれば真を返す
@@ -352,7 +295,7 @@ namespace CrypkoImageDownloader
 
                     options.outputFile = Regex.Replace( options.outputFileOriginal, @"(\d+)(\D*)$", $"{cardId}$2" );
                     if (File.Exists( options.outputFile )) {
-                        Log( $"skip {cardId}, already exists {options.outputFile}" );
+                        ++skipCount;
 
                         // スキップが多いとブラウザ側がタイムアウトしてしまう問題の回避
                         timeStart = DateTime.Now;
@@ -366,6 +309,11 @@ namespace CrypkoImageDownloader
                     options.cardId = cardId.ToString();
                     return true;
                 }
+
+                if (skipCount>0) {
+                    Log( $"NOTICE: {skipCount}/{cardCount} cards are skipped because image files are already exist." );
+                }
+
             } catch (Exception ex) {
                 Log( $"{ex}" );
             }
@@ -447,7 +395,59 @@ namespace CrypkoImageDownloader
                 BreakLoop( 11 );
             }
         }
+
+        //###################################################################################
+        // Utilities
+
+        public static void Log(string line)
+        {
+            Console.Error.WriteLine( line );
+        }
+
+        public static void Save(string filePath, byte[] data)
+        {
+            if (filePath == "-") {
+                using (Stream stdout = Console.OpenStandardOutput()) {
+                    stdout.Write( data, 0, data.Length );
+                }
+                Log( "Wrote to Stdout" );
+            } else {
+                File.WriteAllBytes( filePath, data );
+                Log( $"Saved: {filePath}" );
+            }
+        }
+
+        public static byte[] GetBytesFromStream(Stream src, Boolean leaveOpen = false)
+        {
+            try {
+                using (var streamOut = new MemoryStream()) {
+                    src.CopyTo( streamOut );
+                    streamOut.Seek( 0, System.IO.SeekOrigin.Begin );
+                    return streamOut.ToArray();
+                }
+            } finally {
+                if (!leaveOpen) {
+                    try {
+                        src.Close();
+                    }catch(Exception) {
+
+                    }
+                }
+            }
+        }
+
+        public static void MakeDir(string filePath)
+        {
+            if (filePath == null || filePath == "" || filePath == "-")
+                return;
+            var dir = Path.GetDirectoryName( filePath );
+            if (dir.Length > 0 && !Directory.Exists( dir )) {
+                Directory.CreateDirectory( dir );
+            }
+        }
     }
+
+    public delegate void ResourceCompleteAction(byte[] data);
 
     // リソースの傍受に使うレスポンスフィルタ
     public class InterceptResponseFilter : IResponseFilter
@@ -500,4 +500,31 @@ namespace CrypkoImageDownloader
             return FilterStatus.Done;
         }
     }
+
+    //#####################################################
+    // JSON.Net のデシリアライズに使うクラス定義
+
+#pragma warning disable IDE1006 // 命名スタイル
+    public class Card
+    {
+        public long id
+        {
+            get; set;
+        }
+        // 本当はもっと多くの情報があるが、アプリから使う項目だけ定義する
+    }
+
+    public class SearchResult
+    {
+        public long totalMatched
+        {
+            get; set;
+        }
+        public IList<Card> crypkos
+        {
+            get; set;
+        }
+    }
+#pragma warning restore IDE1006 // 命名スタイル
+
 }

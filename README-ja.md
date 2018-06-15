@@ -13,9 +13,13 @@ https://github.com/tateisu/CrypkoImageDownloaderCS/releases
 
 ```CrypkoImageDownloaderCS.exe (cardId)```
 
-### オーナーを指定して複数のカードを取得
+### 複数のカードを取得(オーナー指定)
 
 ```CrypkoImageDownloaderCS.exe --owner (address)```
+
+### 複数のカードを取得(いいね指定)
+
+```CrypkoImageDownloaderCS.exe --like-by (address)```
 
 ## オプション
 
@@ -40,9 +44,8 @@ https://github.com/tateisu/CrypkoImageDownloaderCS/releases
 
 ## 使用例
 
-```
-$ CrypkoImageDownloaderCS.exe --owner 0xc71dcbcc43ac8bf677c1b7992ddfd0e7bfc464a9 -o data/0.jpg -j data/0.detail.json -t 60
-```
+```CrypkoImageDownloaderCS.exe --owner 0xc71dcbcc43ac8bf677c1b7992ddfd0e7bfc464a9 -o data/0.jpg -j data/0.detail.json -t 60```
+
 オーナーのアドレスはあなたのアドレスに書き換えてください
 
 ## 実装について

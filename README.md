@@ -17,6 +17,10 @@ https://github.com/tateisu/CrypkoImageDownloaderCS/releases
 
 ```CrypkoImageDownloaderCS.exe --owner (address)```
 
+### Get multiple cards by like
+
+```CrypkoImageDownloaderCS.exe --like-by (address)```
+
 ## Options
 
 ```
@@ -40,6 +44,13 @@ ex) -o data/0.jpg  => data/123456.jpg
 
 ## Example
 
-```
-$ bin/x86/Release/CrypkoImageDownloaderCS.exe --owner 0xc71dcbcc43ac8bf677c1b7992ddfd0e7bfc464a9 -o data/0.jpg -j data/0.detail.json -t 60
-```
+```CrypkoImageDownloaderCS.exe --owner 0xc71dcbcc43ac8bf677c1b7992ddfd0e7bfc464a9 -o data/0.jpg -j data/0.detail.json -t 60```
+
+Please replace owner address to yours.
+
+## About Implementation.
+
+If you try to open an image URL normally, the site will returns 403 or 401 that means you have not access permission.
+When opening card details page in browser it seems that some kind of authentication is done.
+This app uses CefSharp.OffScreen. Although it is hidden, it's built-in Chromium browser.
+It intercepts loading of resources in the page and saves API response and image data.
