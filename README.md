@@ -27,7 +27,7 @@ https://github.com/tateisu/CrypkoImageDownloaderCS/releases
 -o (fileName) : (output)The file name of card image. 
                 default: "${cardId}.jpg"
 
--j (fileName) : (output)The file name of card information name. 
+-j (fileName) : (output)The file name of card information. 
                 The card information will be saved only when this option is set.
 
 -t (number)   : Set timeouts in seconds. 
