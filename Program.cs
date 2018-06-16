@@ -108,6 +108,7 @@ namespace CrypkoImageDownloader
         List<Card> cardList = new List<Card>();
         private int cardCount = 0;
         private int skipCount = 0;
+        private int reloadCount = 0;
 
         public int Run(AppOptions options)
         {
@@ -150,11 +151,20 @@ namespace CrypkoImageDownloader
 
                     var now = DateTime.Now;
 
-                    // イベントが起きずに一定時刻が経過したら終了する
+                    // イベントが起きずに一定時刻が経過した
                     var elapsed = now - timeStart;
                     if (elapsed > options.timeout) {
-                        Log( "timeout" );
-                        return 20;
+                        Log( $"timeout. reload count = {reloadCount}/10" );
+                        if (reloadCount >= 10) {
+                            Log( "reload count exceeded. exit app…" );
+                            return 20;
+                        } else {
+                            Log( "reload the page..." );
+                            timeStart = DateTime.Now;
+                            ++reloadCount;
+                            browser.Reload();
+                            continue;
+                        }
                     }
 
                     // 指定があれば次ページに移動する
@@ -162,6 +172,8 @@ namespace CrypkoImageDownloader
                         browser.Load( nextPageUrl );
                         nextPageUrl = null;
                         nextPageTime = DateTime.MaxValue;
+                        timeStart = DateTime.Now;
+                        reloadCount = 0;
                         continue;
                     }
 
