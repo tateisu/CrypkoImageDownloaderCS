@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Brotli;
@@ -28,6 +30,7 @@ namespace CrypkoImageDownloader
         public string jsonFileOriginal = null;
         public string crawlParams = null;
         public string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.79 Safari/537.36";
+        public Boolean verbose = false;
         public TimeSpan timeout = TimeSpan.FromSeconds( 30.0 );
 
         public AppOptions(String[] args)
@@ -49,6 +52,8 @@ namespace CrypkoImageDownloader
                     userAgent = args[ ++i ];
                 } else if (a == "-t") {
                     timeout = TimeSpan.FromSeconds( Double.Parse( args[ ++i ] ) );
+                } else if (a == "-v") {
+                    verbose = true;
                 } else if (a.StartsWith( "-" )) {
                     throw new ArgumentException( $"unknown option {a}." );
                 } else {
@@ -98,6 +103,11 @@ namespace CrypkoImageDownloader
         DateTime nextPageTime = DateTime.MaxValue;
         string nextPageUrl = null;
         string lastCardId = null;
+        SHA1 sha1Encoder = new SHA1CryptoServiceProvider();
+        WebClient client = new WebClient();
+        List<Card> cardList = new List<Card>();
+        private int cardCount = 0;
+        private int skipCount = 0;
 
         public int Run(AppOptions options)
         {
@@ -107,7 +117,7 @@ namespace CrypkoImageDownloader
             if (options.crawlParams != null) {
                 CrawlList( $"category=all&sort=-id&{options.crawlParams}" );
                 if (!EatList()) {
-                    Log( "There are no cards to get. exit…" );
+                    Log( "There are no need to use browser. exit…" );
                     return 0;
                 }
             }
@@ -201,18 +211,14 @@ namespace CrypkoImageDownloader
         //#################################################################################
         // search APIでカードIDを取得
 
-        List<long> cardIdList = new List<long>();
-
 
         // サーチAPIを繰り返し呼び出し、カードIDを収集する
         void CrawlList(string searchParam)
         {
             // 重複排除のため、一時的にSetに格納する
-            HashSet<long> tmpSet = new HashSet<long>();
+            HashSet<Card> tmpSet = new HashSet<Card>();
 
             try {
-                using (var client = new WebClient()) {
-
                     client.Headers.Set( HttpRequestHeader.UserAgent, options.userAgent );
                     client.Headers.Set( HttpRequestHeader.Accept, "application/json, text/plain, */*" );
                     client.Headers.Set( HttpRequestHeader.Referer, "https://crypko.ai/" );
@@ -232,21 +238,11 @@ namespace CrypkoImageDownloader
                                 // to avoid rate-limit, sleep before each request
                                 Thread.Sleep( 1500 );
 
-                                Log( $"get {url}" );
+
                                 // client.DownloadString を使うと文字化けしてJSONパースに失敗する
-                                var jsonBytes = client.DownloadData( url );
-
-                                var contentEncoding = client.ResponseHeaders.Get( "Content-Encoding" );
-                                // Log( $"contentEncoding={contentEncoding}" );
-                                if (contentEncoding == "br") {
-                                    jsonBytes = GetBytesFromStream( new BrotliStream( new MemoryStream( jsonBytes ), CompressionMode.Decompress ) );
-                                } else if (contentEncoding == "gzip") {
-                                    jsonBytes = GetBytesFromStream( new GZipStream( new MemoryStream( jsonBytes ), CompressionMode.Decompress ) );
-                                } else if (contentEncoding == "deflate") {
-                                    jsonBytes = GetBytesFromStream( new DeflateStream( new MemoryStream( jsonBytes ), CompressionMode.Decompress ) );
-                                }
-
-                                jsonString = System.Text.Encoding.UTF8.GetString( jsonBytes );
+                                Log( $"get {url}" );
+                                var jsonBytes = DecodeContentEncoding( client.DownloadData( url ) );
+                                jsonString = Encoding.UTF8.GetString( jsonBytes );
 
                                 var searchResult = JsonConvert.DeserializeObject<SearchResult>( jsonString );
                                 var crypkos = searchResult.crypkos;
@@ -254,9 +250,11 @@ namespace CrypkoImageDownloader
                                     Log( $"page={page} end of list." );
                                     return;
                                 }
+
                                 foreach (var card in crypkos) {
-                                    tmpSet.Add( card.id );
+                                    tmpSet.Add( card );
                                 }
+
                                 Log( $"page={page} count={tmpSet.Count}/{searchResult.totalMatched} {(int)( ( tmpSet.Count * 100 ) / (float)searchResult.totalMatched )}%" );
 
                                 break; // end of retry
@@ -269,46 +267,58 @@ namespace CrypkoImageDownloader
                                 return;
                             } catch (Exception ex) {
                                 Log( $"{ex}" );
+                                if (ex is WebException wex) {
+                                    var response = (HttpWebResponse)wex.Response;
+                                    if (response != null) {
+                                        var code = (int)response.StatusCode;
+                                        if (400 <= code && code < 500) {
+                                            tmpSet.Clear();
+                                            return;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
-                }
             } finally {
-                cardIdList = new List<long>( tmpSet );
-                cardIdList.Sort();
-                cardCount = cardIdList.Count;
+                cardList = new List<Card>( tmpSet );
+                cardList.Sort();
+                cardCount = cardList.Count;
                 Log( $"Found {cardCount} cards." );
             }
         }
 
 
-        private int cardCount = 0;
-        private int skipCount = 0;
 
         // カードIDのリストの先頭の要素を検証して options を変更する
         // 取得するべきカードがあれば真を返す
         bool EatList()
         {
             try {
-                while (cardIdList.Count > 0) {
+                while (cardList.Count > 0) {
 
-                    var cardId = cardIdList[ 0 ];
-                    cardIdList.RemoveAt( 0 );
+                    // スキップが多いとブラウザ側がタイムアウトしてしまう問題の回避
+                    timeStart = DateTime.Now;
 
-                    options.outputFile = Regex.Replace( options.outputFileOriginal, @"(\d+)(\D*)$", $"{cardId}$2" );
+                    var card = cardList[ 0 ];
+                    cardList.RemoveAt( 0 );
+
+                    options.outputFile = Regex.Replace( options.outputFileOriginal, @"(\d+)(\D*)$", $"{card.id}$2" );
                     if (File.Exists( options.outputFile )) {
                         ++skipCount;
-
-                        // スキップが多いとブラウザ側がタイムアウトしてしまう問題の回避
-                        timeStart = DateTime.Now;
                         continue;
                     }
 
                     if (options.jsonFileOriginal != null) {
-                        options.jsonFile = Regex.Replace( options.jsonFileOriginal, @"(\d+)(\D*)$", $"{cardId}$2" );
+                        options.jsonFile = Regex.Replace( options.jsonFileOriginal, @"(\d+)(\D*)$", $"{card.id}$2" );
                     }
 
-                    options.cardId = cardId.ToString();
+                    options.cardId = card.id.ToString();
+
+                    if (SimpleDownload( card )) {
+                        continue;
+                    }
+
                     return true;
                 }
 
@@ -321,6 +331,74 @@ namespace CrypkoImageDownloader
             }
             return false;
         }
+
+
+        bool SimpleDownload(Card card)
+        {
+            client.Headers.Set( HttpRequestHeader.UserAgent, options.userAgent );
+            client.Headers.Set( HttpRequestHeader.Referer, "https://crypko.ai/" );
+
+            {
+                var hash = ToHexString( sha1Encoder.ComputeHash( Encoding.UTF8.GetBytes( $"{card.noise}asdasd3edwasd{card.attrs}" ) ) );
+                var url = $"https://img.crypko.ai/daisy/{hash}_lg.jpg";
+                if (!DownloadFile( url, options.outputFile ))
+                    return false;
+            }
+
+            if (options.jsonFile != null) {
+                // to avoid rate-limit, sleep before each API request
+                Thread.Sleep( 1500 );
+                var url = $"https://api.crypko.ai/crypkos/{options.cardId}/detail";
+                if (!DownloadFile( url, options.jsonFile ))
+                    return false;
+            }
+
+            return true;
+        }
+
+        bool DownloadFile(string url, string path)
+        {
+            for (var retry = 0; retry < 10; ++retry) {
+                try {
+                    Log( $"get {url}" );
+                    var data = DecodeContentEncoding( client.DownloadData( url ) );
+                    Save( path, data );
+                    return true;
+                } catch (Exception ex) {
+                    Log( $"{ex}" );
+                    if (ex is WebException wex) {
+                        var response = (HttpWebResponse)wex.Response;
+                        if (response != null) {
+                            var code = (int)response.StatusCode;
+                            if (400 <= code && code < 500)
+                                return false;
+                        }
+                    }
+                }
+                // to avoid rate-limit, sleep before retry.
+                Thread.Sleep( 1500 );
+            }
+            return false;
+
+        }
+
+        byte[] DecodeContentEncoding(byte[] data)
+        {
+            var contentType = client.ResponseHeaders.Get( "Content-Type" );
+            var contentEncoding = client.ResponseHeaders.Get( "Content-Encoding" );
+            if (options.verbose)
+                Log( $"contentEncoding={contentEncoding}, contentType={contentType}" );
+            if (contentEncoding == "br") {
+                data = GetBytesFromStream( new BrotliStream( new MemoryStream( data ), CompressionMode.Decompress ) );
+            } else if (contentEncoding == "gzip") {
+                data = GetBytesFromStream( new GZipStream( new MemoryStream( data ), CompressionMode.Decompress ) );
+            } else if (contentEncoding == "deflate") {
+                data = GetBytesFromStream( new DeflateStream( new MemoryStream( data ), CompressionMode.Decompress ) );
+            }
+            return data;
+
+        }
+
 
         //#################################################################################
         // リソース取得の傍受
@@ -447,6 +525,18 @@ namespace CrypkoImageDownloader
                 Directory.CreateDirectory( dir );
             }
         }
+
+        public static string ToHexString(byte[] bytes)
+        {
+            StringBuilder sb = new StringBuilder( bytes.Length * 2 );
+            foreach (byte b in bytes) {
+                if (b < 16)
+                    sb.Append( '0' ); // 二桁になるよう0を追加
+                sb.Append( Convert.ToString( b, 16 ) );
+            }
+            return sb.ToString();
+        }
+
     }
 
     public delegate void ResourceCompleteAction(byte[] data);
@@ -507,13 +597,40 @@ namespace CrypkoImageDownloader
     // JSON.Net のデシリアライズに使うクラス定義
 
 #pragma warning disable IDE1006 // 命名スタイル
-    public class Card
+    public class Card : IComparable<Card>
     {
         public long id
         {
             get; set;
         }
+        public string attrs
+        {
+            get; set;
+        }
+        public string noise
+        {
+            get; set;
+        }
         // 本当はもっと多くの情報があるが、アプリから使う項目だけ定義する
+
+        // コレクション用
+        public override Boolean Equals(Object other)
+        {
+            if (other is Card) {
+                id.Equals( ( (Card)other ).id );
+            }
+            return false;
+        }
+
+        public override int GetHashCode()
+        {
+            return id.GetHashCode();
+        }
+
+        public int CompareTo(Card other)
+        {
+            return id.CompareTo( other.id );
+        }
     }
 
     public class SearchResult

@@ -33,6 +33,8 @@ https://github.com/tateisu/CrypkoImageDownloaderCS/releases
 -t (number)   : Set timeouts in seconds. 
                 default: 30
 
+-v            : verbose log output.
+
 --user-agent (string) : HTTP User-Agent header.
                         default: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.79 Safari/537.36"
 
@@ -48,9 +50,3 @@ ex) -o data/0.jpg  => data/123456.jpg
 
 Please replace owner address to yours.
 
-## About Implementation.
-
-If you try to open an image URL normally, the site will returns 403 or 401 that means you have not access permission.
-When opening card details page in browser it seems that some kind of authentication is done.
-This app uses CefSharp.OffScreen. Although it is hidden, it's built-in Chromium browser.
-It intercepts loading of resources in the page and saves API response and image data.

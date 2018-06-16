@@ -33,6 +33,8 @@ https://github.com/tateisu/CrypkoImageDownloaderCS/releases
 -t (数値) : タイムアウトを秒数で指定します。
             デフォルト: 30
 
+-v : ログ出力を冗長にします。
+
 --user-agent (string) : HTTPのUser-Agentヘッダを指定します。
                         デフォルト: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.79 Safari/537.36"
 
@@ -48,9 +50,3 @@ https://github.com/tateisu/CrypkoImageDownloaderCS/releases
 
 オーナーのアドレスはあなたのアドレスに書き換えてください
 
-## 実装について
-
-画像URLを普通に開こうとすると403か401になり、アクセス権限が得られません。
-カード詳細ページをブラウザで開く際はJavaScriptで何らかの認証が行われているようです。
-そこでCefSharp.OffScreen を使います。非表示ですがChromiumブラウザを内蔵しています。
-ページ中のリソース読み込みを傍受してAPIレスポンスや画像データを保存します。
